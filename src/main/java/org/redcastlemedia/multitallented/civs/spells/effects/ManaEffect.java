@@ -1,8 +1,9 @@
 package org.redcastlemedia.multitallented.civs.spells.effects;
 
+import java.util.HashMap;
+
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.entity.Entity;
-import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Player;
 import org.redcastlemedia.multitallented.civs.Civs;
 import org.redcastlemedia.multitallented.civs.civclass.ClassType;
@@ -12,8 +13,6 @@ import org.redcastlemedia.multitallented.civs.items.ItemManager;
 import org.redcastlemedia.multitallented.civs.localization.LocaleManager;
 import org.redcastlemedia.multitallented.civs.spells.Spell;
 import org.redcastlemedia.multitallented.civs.spells.SpellConstants;
-
-import java.util.HashMap;
 
 public class ManaEffect extends Effect {
     private int mana;
