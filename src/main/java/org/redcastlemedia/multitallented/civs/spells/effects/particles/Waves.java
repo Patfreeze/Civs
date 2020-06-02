@@ -1,10 +1,10 @@
 package org.redcastlemedia.multitallented.civs.spells.effects.particles;
 
-import org.bukkit.entity.LivingEntity;
+import org.bukkit.Location;
 import org.bukkit.util.Vector;
 import org.redcastlemedia.multitallented.civs.spells.effects.ParticleEffect;
 
-public class Waves implements CivParticleEffect {
+public class Waves extends CivParticleEffect {
     private final double RADIUS = 1.1; // radius between player and rods
     private final int U_PER_WAVE = 4; // Amount of "U's" per wave.
     private final double MAX_HEIGHT_DIFF = 0.5; // Max height diff between columns
@@ -14,7 +14,7 @@ public class Waves implements CivParticleEffect {
 
 
     @Override
-    public void update(LivingEntity livingEntity, ParticleEffect particleEffect) {
+    public void update(Object target, Location location, ParticleEffect particleEffect) {
         if (heightFactorDir) {
             if (heightFactor < MAX_HEIGHT_DIFF) heightFactor += HEIGHT_DIFF_STEP;
             else heightFactorDir = false;
@@ -31,13 +31,13 @@ public class Waves implements CivParticleEffect {
             v.setY(0.5 + Math.sin(angle * U_PER_WAVE) * heightFactor);
 
             particleEffect.spawnParticle(particleEffect.getParticleType(),
-                    livingEntity.getLocation().add(v),
+                    location.clone().add(v),
                     particleEffect.getRed(), particleEffect.getGreen(), particleEffect.getBlue(),
                     particleEffect.getCount(), particleEffect.getSize(),
                     0, 0, 0,
                     particleEffect.getNote());
             particleEffect.spawnParticle(particleEffect.getParticleType(),
-                    livingEntity.getLocation().add(v).add(0, 1, 0),
+                    location.clone().add(v).add(0, 1, 0),
                     particleEffect.getRed(), particleEffect.getGreen(), particleEffect.getBlue(),
                     particleEffect.getCount(), particleEffect.getSize(),
                     0, 0, 0,
