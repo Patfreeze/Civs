@@ -1,12 +1,15 @@
 package org.redcastlemedia.multitallented.civs.spells;
 
 import org.bukkit.Bukkit;
+import org.bukkit.Location;
 import org.bukkit.configuration.ConfigurationSection;
-import org.bukkit.configuration.MemoryConfiguration;
 import org.bukkit.configuration.file.FileConfiguration;
+import org.bukkit.entity.Arrow;
+import org.bukkit.entity.EntityType;
 import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Player;
-import org.bukkit.potion.PotionEffectType;
+import org.bukkit.entity.Projectile;
+import org.bukkit.util.Vector;
 import org.redcastlemedia.multitallented.civs.Civs;
 import org.redcastlemedia.multitallented.civs.civilians.Civilian;
 import org.redcastlemedia.multitallented.civs.civilians.CivilianManager;
@@ -137,7 +140,6 @@ public class Spell {
     public boolean useAbility(Map<String, Set<?>> incomingTargets,
                               boolean delayed,
                               ConfigurationSection abilitySection) {
-        SpellType spellType = (SpellType) ItemManager.getInstance().getItemType(type);
         HashMap<String, Set<?>> mappedTargets = new HashMap<>(incomingTargets);
 
         if (isFailingConditions(abilitySection, mappedTargets)) {
@@ -170,20 +172,25 @@ public class Spell {
             if (yieldSection == null || !costsMet) {
                 continue;
             }
-            produceYield(delayed, spellType, mappedTargets, yieldSection);
+            produceYield(delayed, mappedTargets, yieldSection);
         }
 
         if (fulfilledRequirements.isEmpty()) {
             return false;
         }
 
+        sendCastMessage(delayed, mappedTargets);
+        return true;
+    }
+
+    private void sendCastMessage(boolean delayed, HashMap<String, Set<?>> mappedTargets) {
         if (!delayed) {
             caster.sendMessage(getSpellCastMessage(caster));
-            for (String key : mappedTargets.keySet()) {
-                if (key.equals(SpellConstants.SELF)) {
+            for (Map.Entry<String, Set<?>> entry : mappedTargets.entrySet()) {
+                if (entry.getKey().equals(SpellConstants.SELF)) {
                     continue;
                 }
-                for (Object obj : mappedTargets.get(key)) {
+                for (Object obj : entry.getValue()) {
                     if (!(obj instanceof Player)) {
                         continue;
                     }
@@ -192,7 +199,6 @@ public class Spell {
                 }
             }
         }
-        return true;
     }
 
     public String getSpellCastMessage(Player player) {
@@ -203,7 +209,7 @@ public class Spell {
                 .replace("$2", localSpellName);
     }
 
-    private void produceYield(boolean delayed, SpellType spellType, HashMap<String, Set<?>> mappedTargets, ConfigurationSection yieldSection) {
+    private void produceYield(boolean delayed, HashMap<String, Set<?>> mappedTargets, ConfigurationSection yieldSection) {
         for (String key : yieldSection.getKeys(false)) {
             String yieldName = "";
             if (!key.contains("^")) {
@@ -212,11 +218,15 @@ public class Spell {
                 yieldName = key.split("\\^")[0];
             }
 
-            if (createDamageListenerYield(spellType, yieldSection, key, yieldName)) {
+            if (createDamageListener(yieldSection, key, yieldName, mappedTargets)) {
                 continue;
             }
 
             if (createDurationYield(delayed, mappedTargets, yieldSection, key, yieldName)) {
+                continue;
+            }
+
+            if (createProjectileListener(yieldName, key, yieldSection, mappedTargets)) {
                 continue;
             }
 
@@ -244,18 +254,58 @@ public class Spell {
         }
     }
 
-    private boolean createDamageListenerYield(SpellType spellType, ConfigurationSection yieldSection, String key, String yieldName) {
+    private boolean createProjectileListener(String yieldName, String key, ConfigurationSection yieldSection, HashMap<String, Set<?>> mappedTargets) {
+        if (!yieldName.equalsIgnoreCase("projectile")) {
+            return false;
+        }
+        final ConfigurationSection projectileSection = yieldSection.getConfigurationSection(key);
+        EntityType entityType = EntityType.valueOf(projectileSection.getString("projectile", "ARROW"));
+        double speed = getLevelAdjustedValue("" + projectileSection.getString("speed", "0.5"), level, null, this);
+        double spread = getLevelAdjustedValue("" + projectileSection.getString("spread", "20"), level, null, this);
+        int amount = (int) Math.round(getLevelAdjustedValue("" + projectileSection.getString("amount", "1"), level, null, this));
+
+        String targetKey = projectileSection.getString(SpellConstants.TARGET, SpellConstants.SELF);
+        for (Object target : mappedTargets.get(targetKey)) {
+            if (target instanceof LivingEntity) {
+                launchProjectiles((LivingEntity) target, (Class<Projectile>) entityType.getEntityClass(), speed, amount, spread, projectileSection, key);
+            }
+        }
+
+        return true;
+    }
+
+    private void launchProjectiles(LivingEntity livingEntity, Class<Projectile> projectileType, double speed, int amount, double spread,
+                                   ConfigurationSection projectileSection, String key) {
+        final double PHI = -livingEntity.getLocation().getPitch();
+        final double THETA = -livingEntity.getLocation().getYaw();
+        for (int i = 0; i < amount; i++) {
+            double phi = (PHI + (Math.random() - 0.5) * spread)
+                    / 180 * Math.PI;
+            double theta = (THETA + (Math.random() - 0.5) * spread)
+                    / 180 * Math.PI;
+            Projectile pr = livingEntity.launchProjectile(
+                    projectileType,
+                    new Vector(Math.cos(phi) * Math.sin(theta),
+                            Math.sin(phi), Math.cos(phi)
+                            * Math.cos(theta)));
+            pr.setVelocity(livingEntity.getLocation().getDirection()
+                    .multiply(5));
+            Vector direction = livingEntity.getLocation().getDirection()
+                    .normalize();
+            pr.setVelocity(direction.multiply(speed));
+            pr.setShooter(livingEntity);
+            SpellListener.getInstance().addProjectileListener(pr, level, projectileSection.getConfigurationSection("section"), this, key, caster);
+        }
+    }
+
+    private boolean createDamageListener(ConfigurationSection yieldSection, String key, String yieldName, HashMap<String, Set<?>> mappedTargets) {
         if (!yieldName.equalsIgnoreCase("damage-listener")) {
             return false;
         }
         final ConfigurationSection damageListenerSection = yieldSection.getConfigurationSection(key);
-        final ConfigurationSection damageListenerConfig = spellType.getConfig().getConfigurationSection("listeners." + key);
-        if (damageListenerConfig == null) {
-            return true;
-        }
 
         long delay = Math.round(getLevelAdjustedValue("" + damageListenerSection.getLong("delay", 0), level, null, this));
-        long duration = Math.round(getLevelAdjustedValue("" + damageListenerSection.getLong("duration", 0), level, null, this));
+        long ticks = Math.round(getLevelAdjustedValue("" + damageListenerSection.getLong("ticks", 0), level, null, this));
         final Player finalCaster = caster;
         final int finalLevel = level;
         int delayId = -1;
@@ -265,30 +315,42 @@ public class Spell {
         final String finalKey = key;
         final Spell spell = this;
         final String finalYieldName = yieldName;
-        if (duration > 0) {
-            durationId = Bukkit.getScheduler().runTaskLater(Civs.getInstance(), new Runnable() {
-                @Override
-                public void run() {
-                    SpellListener.getInstance().removeDamageListener(finalCaster);
-                    finalChampion.getStates().remove(finalName + "." + finalKey);
-                }
-            }, delay + duration).getTaskId();
-        }
-        if (delayId < -1) {
-            Bukkit.getScheduler().runTaskLater(Civs.getInstance(), new Runnable() {
-                @Override
-                public void run() {
-                    SpellListener.getInstance().addDamageListener(finalCaster, finalLevel, damageListenerConfig, spell);
 
-                }
-            }, delay);
-        } else {
-            SpellListener.getInstance().addDamageListener(caster, level, damageListenerConfig, spell);
-            HashMap<String, Object> listenerVars = new HashMap<>();
+        String targetKey = damageListenerSection.getString(SpellConstants.TARGET, SpellConstants.SELF);
+        Set<?> targetSet = mappedTargets.get(targetKey);
+        for (Object target : targetSet) {
+            if (!(target instanceof LivingEntity)) {
+                continue;
+            }
+            if (ticks > 0) {
+                durationId = Bukkit.getScheduler().runTaskLater(Civs.getInstance(), new Runnable() {
+                    @Override
+                    public void run() {
+                        SpellListener.getInstance().removeDamageListener((LivingEntity) target);
+                        finalChampion.getStates().remove(finalName + "." + finalKey);
+                    }
+                }, delay + ticks).getTaskId();
+            }
+            if (delayId < -1) {
+                Bukkit.getScheduler().runTaskLater(Civs.getInstance(), new Runnable() {
+                    @Override
+                    public void run() {
+                        SpellListener.getInstance().addDamageListener((LivingEntity) target, finalLevel,
+                                damageListenerSection.getConfigurationSection("section"), spell, finalCaster, key);
 
-            CivState state = new CivState(this, finalYieldName, durationId, -1, damageListenerConfig, listenerVars);
-            finalChampion.getStates().put(finalName + "." + finalKey, state);
+                    }
+                }, delay);
+            } else {
+                SpellListener.getInstance().addDamageListener((LivingEntity) target, level,
+                        damageListenerSection.getConfigurationSection("section"), spell, caster, key);
+                HashMap<String, Object> listenerVars = new HashMap<>();
+
+                CivState state = new CivState(this, finalYieldName, durationId, -1,
+                        damageListenerSection.getConfigurationSection("section"), listenerVars);
+                finalChampion.getStates().put(finalName + "." + finalKey, state);
+            }
         }
+
         return true;
     }
 
